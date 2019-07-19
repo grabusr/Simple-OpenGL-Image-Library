@@ -30,7 +30,7 @@ endif()
 #added flag to make adding static lib to shared lib
 target_compile_options(${LIB_NAME} PUBLIC -fPIC)
 
-target_include_directories(${LIB_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>
+target_include_directories(${LIB_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
                                               $<INSTALL_INTERFACE:include/SOIL>)
 
 install(TARGETS ${LIB_NAME}
