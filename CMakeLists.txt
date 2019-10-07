@@ -23,7 +23,7 @@ add_library(${LIB_NAME} STATIC ${SOIL_SOURCES})
 
 if (ANDROID)
     target_link_libraries(${LIB_NAME} PUBLIC ${OpenGLES2})
-elseif()
+else()
     target_link_libraries(${LIB_NAME} PUBLIC OpenGL::GL)
 endif()
 

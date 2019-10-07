@@ -120,17 +120,28 @@ static int SOIL_internal_has_OGL_capability(const char * cap)
 		major_version = 0;
 
 	P_SOIL_GLGETSTRINGIPROC soilGlGetStringi =
+#ifdef _WIN32
+		(P_SOIL_GLGETSTRINGIPROC) wglGetProcAddress((const GLubyte *) "glGetString");
+#else
 		(P_SOIL_GLGETSTRINGIPROC) glXGetProcAddressARB((const GLubyte *) "glGetStringi");
+#endif
 
 	if (major_version >= 3 && soilGlGetStringi) {
 		// OpenGL 3.0+
-		glGetIntegerv(GL_NUM_EXTENSIONS, &num_ext);
-		for (i = 0; i < num_ext; i++) {
-			ext_string = soilGlGetStringi(GL_EXTENSIONS, i);
-			if (ext_string && !strcmp((const char *) ext_string, cap)) {
-				return GL_TRUE;
-			}
-		}
+#ifdef GL_NUM_EXTENSIONS
+    glGetIntegerv(GL_NUM_EXTENSIONS, &num_ext);
+    for (i = 0; i < num_ext; i++) {
+      ext_string = soilGlGetStringi(GL_EXTENSIONS, i);
+      if (ext_string && !strcmp((const char *) ext_string, cap)) {
+        return GL_TRUE;
+      }
+    }
+#else
+     ext_string = glGetString(GL_EXTENSIONS);
+     if (ext_string && strstr((const char *) ext_string, cap)) {
+         return GL_TRUE;
+     }
+#endif
 	}
 	else {
 		// OpenGL < 3.0
