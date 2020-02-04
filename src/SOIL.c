@@ -26,9 +26,15 @@
 	#include <wingdi.h>
 	#include <GL/gl.h>
 #elif defined(__APPLE__) || defined(__APPLE_CC__)
-	/*	I can't test this Apple stuff!	*/
-	#include <OpenGL/gl.h>
-	#include <Carbon/Carbon.h>
+    #include <CoreFoundation/CoreFoundation.h>
+    #include <OpenGL/OpenGL.h>
+    #include <OpenGL/gl.h>
+    /* gl3.h is only available in the OS X 10.7 SDK or later. */
+    #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1070
+    /* Silence the warning that we've included both gl.h and gl3.h */
+            #define GL_DO_NOT_WARN_IF_MULTI_GL_VERSION_HEADERS_INCLUDED
+            #include <OpenGL/gl3.h>
+    #endif
 	#define APIENTRY
 #elif defined(__ANDROID__)
 	#include <GLES/gl.h>
@@ -73,6 +79,11 @@ int query_cubemap_capability( void );
 #define SOIL_TEXTURE_CUBE_MAP_NEGATIVE_Z	0x851A
 #define SOIL_PROXY_TEXTURE_CUBE_MAP			0x851B
 #define SOIL_MAX_CUBE_MAP_TEXTURE_SIZE		0x851C
+
+/*  for OS X Core profile  */
+static int has_OSX_Core_capability = SOIL_CAPABILITY_UNKNOWN;
+int query_OSX_Core_capability( void );
+
 /*	for non-power-of-two texture	*/
 static int has_NPOT_capability = SOIL_CAPABILITY_UNKNOWN;
 int query_NPOT_capability( void );
@@ -119,11 +130,37 @@ static int SOIL_internal_has_OGL_capability(const char * cap)
 	else
 		major_version = 0;
 
-	P_SOIL_GLGETSTRINGIPROC soilGlGetStringi =
-#ifdef _WIN32
-		(P_SOIL_GLGETSTRINGIPROC) wglGetProcAddress((const GLubyte *) "glGetString");
+#if defined(__APPLE__) || defined(__APPLE_CC__)
+    /*	I can't test this Apple stuff!	*/
+    CFBundleRef bundle;
+    CFURLRef bundleURL =
+            CFURLCreateWithFileSystemPath(
+                    kCFAllocatorDefault,
+                    CFSTR("/System/Library/Frameworks/OpenGL.framework"),
+                    kCFURLPOSIXPathStyle,
+                    true );
+    CFStringRef extensionName =
+            CFStringCreateWithCString(
+                    kCFAllocatorDefault,
+                    "glCompressedTexImage2DARB",
+                    kCFStringEncodingASCII );
+    bundle = CFBundleCreate( kCFAllocatorDefault, bundleURL );
+    assert( bundle != NULL );
+    P_SOIL_GLGETSTRINGIPROC soilGlGetStringi = (P_SOIL_GLCOMPRESSEDTEXIMAGE2DPROC)
+            CFBundleGetFunctionPointerForName
+                    (
+                            bundle, extensionName
+                    );
+    CFRelease( bundleURL );
+    CFRelease( extensionName );
+    CFRelease( bundle );
 #else
+	P_SOIL_GLGETSTRINGIPROC soilGlGetStringi =
+    #ifdef _WIN32
+		(P_SOIL_GLGETSTRINGIPROC) wglGetProcAddress((const GLubyte *) "glGetString");
+    #else
 		(P_SOIL_GLGETSTRINGIPROC) glXGetProcAddressARB((const GLubyte *) "glGetStringi");
+    #endif
 #endif
 
 	if (major_version >= 3 && soilGlGetStringi) {
@@ -1250,6 +1287,9 @@ unsigned int
 		/*	and what type am I using as the internal texture format?	*/
 		switch( channels )
 		{
+#if __APPLE__
+    #warning GL_LUMINANCE and GL_LUMINANCE_ALPHA are deprecated in the Core Profile.
+#endif
 		case 1:
 			original_texture_format = GL_LUMINANCE;
 			break;
@@ -1942,6 +1982,39 @@ unsigned int SOIL_direct_load_DDS(
 	return tex_ID;
 }
 
+int query_OSX_Core_capability( void )
+{
+#if __APPLE__ && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1070
+    /*	check for the capability	*/
+	if( has_OSX_Core_capability == SOIL_CAPABILITY_UNKNOWN )
+	{
+		/*	we haven't yet checked for the capability, do so	*/
+        GLint value;
+        if (kCGLNoError != CGLDescribePixelFormat( CGLGetPixelFormat(CGLGetCurrentContext()),
+                                                  0,
+                                                  kCGLPFAOpenGLProfile,
+                                                  &value)
+        ||
+            value < kCGLOGLPVersion_3_2_Core
+            )
+		{
+			/*	not there, flag the failure	*/
+			has_OSX_Core_capability = SOIL_CAPABILITY_NONE;
+		} else
+		{
+			/*	it's there!	*/
+			has_OSX_Core_capability = SOIL_CAPABILITY_PRESENT;
+		}
+	}
+	/*	let the user know if we are using the Core Profile or not	*/
+	return has_OSX_Core_capability;
+#else
+    /*  Other platforms and OS X versions less than 10.7 don't care. */
+    return SOIL_CAPABILITY_NONE;
+#endif
+}
+
+
 // GL_ARB_texture_non_power_of_two is a core feature in OpenGL 2.0
 int query_NPOT_capability( void )
 {
@@ -1949,7 +2022,11 @@ int query_NPOT_capability( void )
 	if( has_NPOT_capability == SOIL_CAPABILITY_UNKNOWN )
 	{
 		/*	we haven't yet checked for the capability, do so	*/
-		if( !SOIL_internal_has_OGL_capability( "GL_ARB_texture_non_power_of_two" ))
+		if(
+		        /* This extension is Core in GL 2.0 and is no longer present when using the GL Core Profile. */
+                query_OSX_Core_capability() == SOIL_CAPABILITY_NONE
+                &&
+                !SOIL_internal_has_OGL_capability( "GL_ARB_texture_non_power_of_two" ))
 		{
 			/*	not there, flag the failure	*/
 			has_NPOT_capability = SOIL_CAPABILITY_NONE;
@@ -1970,7 +2047,11 @@ int query_tex_rectangle_capability( void )
 	if( has_tex_rectangle_capability == SOIL_CAPABILITY_UNKNOWN )
 	{
 		/*	we haven't yet checked for the capability, do so	*/
-		if( !SOIL_internal_has_OGL_capability( "GL_ARB_texture_rectangle" ) &&
+		if(
+		        /* This extension is now Core and is no longer present when using the GL Core Profile. */
+                query_OSX_Core_capability() == SOIL_CAPABILITY_NONE
+                &&
+                !SOIL_internal_has_OGL_capability( "GL_ARB_texture_rectangle" ) &&
 		    !SOIL_internal_has_OGL_capability( "GL_EXT_texture_rectangle" ) &&
 		    !SOIL_internal_has_OGL_capability( "GL_NV_texture_rectangle" ) )
 		{
@@ -1993,7 +2074,11 @@ int query_cubemap_capability( void )
 	if( has_cubemap_capability == SOIL_CAPABILITY_UNKNOWN )
 	{
 		/*	we haven't yet checked for the capability, do so	*/
-		if( !SOIL_internal_has_OGL_capability( "GL_ARB_texture_cube_map" ) &&
+		if(
+            /* This extension is Core in GL 1.3 and is no longer present when using the GL Core Profile. */
+                query_OSX_Core_capability() == SOIL_CAPABILITY_NONE
+                &&
+                !SOIL_internal_has_OGL_capability( "GL_ARB_texture_cube_map" ) &&
 		    !SOIL_internal_has_OGL_capability( "GL_EXT_texture_cube_map" )
 		#ifdef GL_ES_VERSION_2_0
 		&& (0) /* GL ES 2.0 supports cubemaps, always enable */
@@ -2020,7 +2105,11 @@ int query_DXT_capability( void )
 	if( has_DXT_capability == SOIL_CAPABILITY_UNKNOWN )
 	{
 		/*	we haven't yet checked for the capability, do so	*/
-		if( !SOIL_internal_has_OGL_capability( "GL_EXT_texture_compression_s3tc" ) )
+		if(
+            /* This extension is Core in GL 1.3 and is no longer present when using the GL Core Profile. */
+                query_OSX_Core_capability() == SOIL_CAPABILITY_NONE
+                &&
+		        !SOIL_internal_has_OGL_capability( "GL_EXT_texture_compression_s3tc" ) )
 		{
 			/*	not there, flag the failure	*/
 			has_DXT_capability = SOIL_CAPABILITY_NONE;
